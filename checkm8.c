@@ -48,7 +48,7 @@ irecv_client_t acquire_device(int attempts, bool need_found_report, bool need_no
     irecv_client_t client = NULL;
     bool connected = false;
 
-#define ATTEMPT_PERIOD_USEC (200 * 1000)  
+#define ATTEMPT_PERIOD_USEC (500 * 1000)  
 
     for (int i = 0; i < attempts; i++) {
         if (irecv_open_with_ecid(&client, 0) == IRECV_E_SUCCESS) {
@@ -70,6 +70,10 @@ irecv_client_t acquire_device(int attempts, bool need_found_report, bool need_no
     }
 
     const struct irecv_device_info *info = irecv_get_device_info(client);
+    if (!info) {
+        printf("acquired device, but not info?!\n");
+        goto fail;
+    }
 
     if (!need_nonce_verify) {
         memcpy(current_nonce, info->ap_nonce, NONCE_MAX_SIZE);
