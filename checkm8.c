@@ -71,7 +71,12 @@ irecv_client_t acquire_device(int attempts, bool need_found_report, bool need_no
 
     const struct irecv_device_info *info = irecv_get_device_info(client);
     if (!info) {
-        printf("acquired device, but not info?!\n");
+        printf("acquired device, but no info?!\n");
+        goto fail;
+    }
+
+    if (!info->ap_nonce) {
+        printf("acquired device, but no nonce?!\n");
         goto fail;
     }
 
