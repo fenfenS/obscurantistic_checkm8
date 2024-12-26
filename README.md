@@ -2,7 +2,7 @@
 
 Little checkm8 rewrite in C for Haywire (S5L8747X) - Apple Lightning video adapters
 
-You can run it on iOS as well (if you are lucky)
+You can run it on iOS as well (if you are lucky), on older versions it might take up to 1-1.5 minutes
 
 ## SoC support
 

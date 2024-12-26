@@ -111,9 +111,9 @@ fail:
 }
 
 static void print_banner() {
-    printf("***      checkm8 exploit by @axi0mX      ***\n");
-    printf("*** s5l8747x implementaion by @a1exdandy ***\n");
-    printf("*** libirecovery/iOS port by @nyan_satan ***\n");
+    printf("***          checkm8 exploit by @axi0mX           ***\n");
+    printf("*** s5l8747x/Haywire implementation by @a1exdandy ***\n");
+    printf("***     libirecovery/iOS port by @nyan_satan      ***\n");
     printf("\n");
 }
 
