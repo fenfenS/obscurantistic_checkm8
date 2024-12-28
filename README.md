@@ -1,4 +1,4 @@
-# obscutantistic_checkm8
+# obscurantistic_checkm8
 
 Little rewrite of checkm8 in C for obscure targets that don't have a solution working on modern \*OS, such as Apple Lightning video adapters and Apple TV 3 (2013)
 
@@ -14,7 +14,7 @@ On older versions of iOS & OS X it might take up to 1-1.5 minutes and even more
 ## Usage
 
 ```
-➜  obscutantistic_checkm8 git:(master) ✗ build/obscutantistic_checkm8                                                                      
+➜  obscurantistic_checkm8 git:(master) ✗ build/obscurantistic_checkm8                                                                      
 ***      checkm8 exploit by @axi0mX      ***
 *** s5l8747x implementaion by @a1exdandy ***
 *** libirecovery/iOS port by @nyan_satan ***
@@ -38,9 +38,9 @@ Requirements:
 Then just use `make`:
 
 ```
-➜  obscutantistic_checkm8 git:(master) ✗ make                                                                                       
-        building obscutantistic_checkm8 for iOS
-        building obscutantistic_checkm8 for Mac
+➜  obscurantistic_checkm8 git:(master) ✗ make                                                                                       
+        building obscurantistic_checkm8 for iOS
+        building obscurantistic_checkm8 for Mac
 done!
 ```
 
