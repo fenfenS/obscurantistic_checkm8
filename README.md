@@ -14,17 +14,18 @@ On older versions of iOS & OS X it might take up to 1-1.5 minutes and even more
 ## Usage
 
 ```
-➜  obscurantistic_checkm8 git:(master) ✗ build/obscurantistic_checkm8                                                                      
-***      checkm8 exploit by @axi0mX      ***
-*** s5l8747x implementaion by @a1exdandy ***
-*** libirecovery/iOS port by @nyan_satan ***
+➜  obscurantistic_checkm8 git:(master) ✗ build/obscurantistic_checkm8
+***          checkm8 exploit by @axi0mX           ***
+*** s5l8747x/Haywire implementation by @a1exdandy ***
+***     libirecovery/iOS port by @nyan_satan      ***
 
-found: CPID:8747 CPRV:10 CPFM:03 SCEP:10 BDID:00 ECID:REDACTED IBFL:00 SRTG:[iBoot-1413.8]
+found: CPID:8947 CPRV:00 CPFM:03 SCEP:10 BDID:00 ECID:REDACTED IBFL:00 SRTG:[iBoot-1458.2]
 leaking...
 triggering UaF...
 sending payload...
-found: CPID:8747 CPRV:10 CPFM:03 SCEP:10 BDID:00 ECID:REDACTED IBFL:00 SRTG:[iBoot-1413.8] PWND:[checkm8]
+found: CPID:8947 CPRV:00 CPFM:03 SCEP:10 BDID:00 ECID:REDACTED IBFL:00 SRTG:[iBoot-1458.2] PWND:[checkm8]
 exploit success!
+took - 1.66s
 ```
 
 ## Building
