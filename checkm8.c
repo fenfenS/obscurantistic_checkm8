@@ -53,7 +53,8 @@ irecv_client_t acquire_device(int attempts, bool need_found_report, bool need_no
     irecv_client_t client = NULL;
     bool connected = false;
 
-#define ATTEMPT_PERIOD_USEC (500 * 1000)  
+/* this is probably worth tuning */
+#define ATTEMPT_PERIOD_USEC (100 * 1000)  
 
     for (int i = 0; i < attempts; i++) {
         if (irecv_open_with_ecid(&client, 0) == IRECV_E_SUCCESS) {
@@ -147,6 +148,8 @@ int checkm8(irecv_client_t device, const exploit_config_t *config) {
     irecv_usb_control_transfer(device, 0x21, 4, 0, 0, NULL, 0, 100);
     close_device(device);
 
+    usleep(250 * 1000);
+
     device = acquire_device(10, false, true, NULL);
     if (!device) {
         printf("device disappeared after UaF trigger stage\n");
@@ -229,8 +232,6 @@ int main(void) {
 
     printf("exploit success!\n");
     printf("took - %.2fs\n", elapsed_sec);
-
-    close_device(device);
 
     return 0;
 }
