@@ -47,39 +47,6 @@ static void close_device(libusb_device_handle *device) {
 	libusb_exit(NULL);
 }
 
-libusb_device_handle* acquire_device(uint16_t vid, uint16_t pid, unsigned int timeout_ms) {
-    libusb_device_handle *handle = NULL;
-    struct timespec start, current;
-    double elapsed = 0.0;
-
-    // 获取开始时间
-    clock_gettime(CLOCK_MONOTONIC, &start);
-
-    // 在超时时间内循环尝试查找设备
-    while (elapsed < timeout_ms / 1000.0) {
-        // 尝试查找并打开设备
-        handle = find_device_by_vid_pid(vid, pid);
-        
-        // 如果找到设备，返回句柄
-        if (handle != NULL) {
-            printf("Device acquired successfully (VID:0x%04x PID:0x%04x)\n", vid, pid);
-            return handle;
-        }
-
-        // 计算已用时间
-        clock_gettime(CLOCK_MONOTONIC, ¤t);
-        elapsed = (current.tv_sec - start.tv_sec) + 
-                 (current.tv_nsec - start.tv_nsec) / 1e9;
-
-        // 短暂休眠，避免过度占用 CPU
-        usleep(10000);  // 休眠 10ms
-    }
-
-    // 超时未找到设备
-    fprintf(stderr, "Failed to acquire device (VID:0x%04x PID:0x%04x) within %u ms\n", 
-            vid, pid, timeout_ms);
-    return NULL;
-}
 
 // 异步传输完成回调函数
 static void LIBUSB_CALL async_transfer_callback(struct libusb_transfer *transfer) {
@@ -224,6 +191,40 @@ libusb_device_handle* find_device_by_vid_pid(uint16_t vid, uint16_t pid) {
     libusb_exit(context);
 
     return handle;
+}
+
+libusb_device_handle* acquire_device(uint16_t vid, uint16_t pid, unsigned int timeout_ms) {
+    libusb_device_handle *handle = NULL;
+    struct timespec start, current;
+    double elapsed = 0.0;
+
+    // 获取开始时间
+    clock_gettime(CLOCK_MONOTONIC, &start);
+
+    // 在超时时间内循环尝试查找设备
+    while (elapsed < timeout_ms / 1000.0) {
+        // 尝试查找并打开设备
+        handle = find_device_by_vid_pid(vid, pid);
+        
+        // 如果找到设备，返回句柄
+        if (handle != NULL) {
+            printf("Device acquired successfully (VID:0x%04x PID:0x%04x)\n", vid, pid);
+            return handle;
+        }
+
+        // 计算已用时间
+        clock_gettime(CLOCK_MONOTONIC, &current);
+        elapsed = (current.tv_sec - start.tv_sec) + 
+                 (current.tv_nsec - start.tv_nsec) / 1e9;
+
+        // 短暂休眠，避免过度占用 CPU
+        usleep(50000);  // 休眠 10ms
+    }
+
+    // 超时未找到设备
+    fprintf(stderr, "Failed to acquire device (VID:0x%04x PID:0x%04x) within %u ms\n", 
+            vid, pid, timeout_ms);
+    return NULL;
 }
 
 int checkm8(libusb_device_handle* device, const exploit_config_t *config) {
