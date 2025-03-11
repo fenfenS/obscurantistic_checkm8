@@ -8,7 +8,6 @@ MAC_ARCH = -arch arm64 -arch x86_64
 IOS_ARCH = -arch armv7 -arch arm64
 
 CFLAGS = -O3
-CFLAGS += -Ililirecovery
 LDFLAGS = -framework IOKit -framework CoreFoundation
 
 IOS_CFLAGS = -miphoneos-version-min=6.0
@@ -17,7 +16,7 @@ IOS_IOKIT_LINK = ln -fsh $(shell xcrun --sdk macosx --show-sdk-path)/System/Libr
 
 MAC_CFLAGS = -mmacos-version-min=10.8
 
-CHECKM8_SRC = checkm8.c lilirecovery/lilirecovery.c
+CHECKM8_SRC = checkm8.c
 CHECKM8_IOS_BUILD = build/obscurantistic_checkm8_ios
 CHECKM8_MAC_BUILD = build/obscurantistic_checkm8
 
