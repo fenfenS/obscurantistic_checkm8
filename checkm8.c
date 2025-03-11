@@ -44,7 +44,7 @@ static bool check_device_pwnd(libusb_device_handle* client) {
 
 static void close_device(libusb_device_handle *device) {
     libusb_close(device);
-	libusb_exit(NULL);
+	// libusb_exit(NULL);
 }
 
 
@@ -54,91 +54,41 @@ static void LIBUSB_CALL async_transfer_callback(struct libusb_transfer *transfer
     // 可以留空或添加日志
 }
 
-// 执行异步控制传输
-int libusb1_async_ctrl_transfer(
-    libusb_device_handle *device,
-    uint8_t bmRequestType,
-    uint8_t bRequest,
-    uint16_t wValue,
-    uint16_t wIndex,
-    unsigned char *data,
-    uint16_t data_length,
-    unsigned int timeout)
-{
-    struct libusb_transfer *transfer = NULL;
-    unsigned char *buffer = NULL;
-    int result;
-    struct timespec start, current;
-    double elapsed;
+static void
+usb_async_cb(struct libusb_transfer *transfer) {
+	*(int *)transfer->user_data = 1;
+}
 
-    // 分配传输结构体
-    transfer = libusb_alloc_transfer(0);
-    if (!transfer) {
-        fprintf(stderr, "Failed to allocate transfer\n");
-        return -1;
-    }
+bool libusb1_async_ctrl_transfer(libusb_device_handle* device, uint8_t bm_request_type, uint8_t b_request, uint16_t w_value, uint16_t w_index, void *p_data, size_t w_len, unsigned usb_abort_timeout) {
+	struct libusb_transfer *transfer = libusb_alloc_transfer(0);
+	struct timeval tv;
+	int completed = 0;
+	uint8_t *buf;
 
-    // 准备控制传输的 setup packet 和数据
-    int total_length = LIBUSB_CONTROL_SETUP_SIZE + data_length;
-    buffer = (unsigned char *)malloc(total_length);
-    if (!buffer) {
-        libusb_free_transfer(transfer);
-        fprintf(stderr, "Failed to allocate buffer\n");
-        return -1;
-    }
-
-    // 填充 setup packet
-    libusb_fill_control_setup(buffer, bmRequestType, bRequest, wValue, wIndex, data_length);
-    // 复制数据
-    if (data_length > 0 && data != NULL) {
-        memcpy(buffer + LIBUSB_CONTROL_SETUP_SIZE, data, data_length);
-    }
-
-    // 设置传输参数
-    libusb_fill_control_transfer(
-        transfer,
-        device,
-        buffer,
-        async_transfer_callback,
-        NULL,  // user_data
-        timeout
-    );
-
-    // 提交异步传输
-    result = libusb_submit_transfer(transfer);
-    if (result != LIBUSB_SUCCESS) {
-        fprintf(stderr, "Failed to submit transfer: %s\n", libusb_error_name(result));
-        free(buffer);
-        libusb_free_transfer(transfer);
-        return result;
-    }
-
-    // 获取开始时间
-    clock_gettime(CLOCK_MONOTONIC, &start);
-
-    // 等待指定的超时时间
-    while (1) {
-        clock_gettime(CLOCK_MONOTONIC, &current);
-        elapsed = (current.tv_sec - start.tv_sec) + 
-                 (current.tv_nsec - start.tv_nsec) / 1e9;
-        
-        if (elapsed >= timeout / 1000.0) {
-            break;
-        }
-        // 这里可以添加上下文处理，但为了简单起见我们只是等待
-    }
-
-    // 取消传输
-    result = libusb_cancel_transfer(transfer);
-    if (result != LIBUSB_SUCCESS) {
-        fprintf(stderr, "Failed to cancel transfer: %s\n", libusb_error_name(result));
-    }
-
-    // 清理资源
-    free(buffer);
-    libusb_free_transfer(transfer);
-
-    return 0;
+	if(transfer != NULL) {
+		if((buf = malloc(LIBUSB_CONTROL_SETUP_SIZE + w_len)) != NULL) {
+			if((bm_request_type & LIBUSB_ENDPOINT_DIR_MASK) == LIBUSB_ENDPOINT_OUT) {
+				memcpy(buf + LIBUSB_CONTROL_SETUP_SIZE, p_data, w_len);
+			}
+			libusb_fill_control_setup(buf, bm_request_type, b_request, w_value, w_index, (uint16_t)w_len);
+			libusb_fill_control_transfer(transfer, device, buf, usb_async_cb, &completed, usb_timeout);
+			if(libusb_submit_transfer(transfer) == LIBUSB_SUCCESS) {
+				tv.tv_sec = usb_abort_timeout / 1000;
+				tv.tv_usec = (usb_abort_timeout % 1000) * 1000;
+				while(completed == 0 && libusb_handle_events_timeout_completed(NULL, &tv, &completed) == LIBUSB_SUCCESS) {
+					libusb_cancel_transfer(transfer);
+				}
+				if(completed != 0) {
+					if((bm_request_type & LIBUSB_ENDPOINT_DIR_MASK) == LIBUSB_ENDPOINT_IN) {
+						memcpy(p_data, libusb_control_transfer_get_data(transfer), transfer->actual_length);
+					}
+				}
+			}
+			free(buf);
+		}
+		libusb_free_transfer(transfer);
+	}
+	return completed != 0;
 }
 
 libusb_device_handle* find_device_by_vid_pid(uint16_t vid, uint16_t pid) {
@@ -188,7 +138,6 @@ libusb_device_handle* find_device_by_vid_pid(uint16_t vid, uint16_t pid) {
 
     // 清理资源
     libusb_free_device_list(device_list, 1);
-    libusb_exit(context);
 
     return handle;
 }
